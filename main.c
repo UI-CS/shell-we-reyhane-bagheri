@@ -2,38 +2,208 @@
 #include <unistd.h>
 #include <string.h>
 #include <stdlib.h>
+#include <sys/wait.h>
+#include <readline/readline.h>
 
-#define MAX_LINE 80 
+#define MAX_LINE 1024
+#define MAX_ARGS 64
 
-char **parse_input(char *input) {
-    char **args = malloc(MAX_LINE * sizeof(char *));
-    char *token = strtok(input, " \n");
-    int i = 0;
-    while (token != NULL) {
-        args[i++] = token;
-        token = strtok(NULL, " \n");
-    }
-    args[i] = NULL;
-    return args;
+static char last_command[MAX_LINE] = "";
+
+static int is_builtin(char **args) {
+    if (!args || !args[0]) return 0;
+    return strcmp(args[0], "cd") == 0 || strcmp(args[0], "pwd") == 0 || strcmp(args[0], "help") == 0 || strcmp(args[0], "exit") == 0 || strcmp(args[0], "echo") == 0 || strcmp(args[0], "clr") == 0;
 }
 
-int main(void) {
-    char input[MAX_LINE];
-    char **args;
-    int should_run = 1;
-
-    while (should_run) {
-        printf("uinxsh> ");
-        fflush(stdout);
-        if (fgets(input, MAX_LINE, stdin) == NULL) break;
-        
-        args = parse_input(input);
-        
-        if (args[0] != NULL && strcmp(args[0], "exit") == 0) {
-            should_run = 0;
+static void handle_builtin(char **args) {
+    if (strcmp(args[0], "cd") == 0) {
+        char *path = args[1] ? args[1] : getenv("HOME");
+        if (chdir(path) != 0) {
+            perror("cd failed");
         }
-        
-        free(args);
+    } else if (strcmp(args[0], "pwd") == 0) {
+        char cwd[1024];
+        if (getcwd(cwd, sizeof(cwd))) {
+            printf("%s\n", cwd);
+        } else {
+            perror("getcwd failed");
+        }
+    } else if (strcmp(args[0], "help") == 0) {
+        printf("Built-in commands:\n");
+        printf("  cd [path]  - Change directory\n");
+        printf("  pwd        - Print working directory\n");
+        printf("  help       - Show this help message\n");
+        printf("  exit       - Exit the shell\n");
+        printf("  echo ...   - Echo arguments\n");
+        printf("  clr        - Clear the screen\n");
+    } else if (strcmp(args[0], "echo") == 0) {
+        for (int i = 1; args[i]; i++) {
+            printf("%s%s", args[i], args[i + 1] ? " " : "");
+        }
+        printf("\n");
+    } else if (strcmp(args[0], "clr") == 0) {
+        printf("\033[H\033[J");
     }
+}
+
+static void parse_input(char *input, char **args, int *is_background) {
+    *is_background = 0;
+    int i = 0;
+    char *token = strtok(input, " ");
+    while (token != NULL && i < MAX_ARGS - 1) {
+        args[i++] = token;
+        token = strtok(NULL, " ");
+    }
+    args[i] = NULL;
+
+    if (i > 0 && strcmp(args[i - 1], "&") == 0) {
+        *is_background = 1;
+        args[i - 1] = NULL;
+    }
+}
+
+static void execute_command(char **args, int is_background) {
+    pid_t pid = fork();
+    if (pid < 0) {
+        perror("fork failed");
+        return;
+    }
+
+    if (pid == 0) {
+        execvp(args[0], args);
+        perror("Execution failed");
+        _exit(1);
+    }
+
+    if (is_background) {
+        printf("[%d]\n", pid);
+    } else {
+        int status;
+        waitpid(pid, &status, 0);
+    }
+}
+
+static void execute_piped_command(char **args_input, char **args_output, int is_background) {
+    int pipefd[2];
+    if (pipe(pipefd) == -1) {
+        perror("pipe failed");
+        return;
+    }
+
+    pid_t pid1 = fork();
+    if (pid1 < 0) {
+        perror("fork failed");
+        close(pipefd[0]);
+        close(pipefd[1]);
+        return;
+    }
+
+    if (pid1 == 0) {
+        dup2(pipefd[1], STDOUT_FILENO);
+        close(pipefd[0]);
+        close(pipefd[1]);
+        execvp(args_input[0], args_input);
+        perror("Execution failed");
+        _exit(1);
+    }
+
+    pid_t pid2 = fork();
+    if (pid2 < 0) {
+        perror("fork failed");
+        close(pipefd[0]);
+        close(pipefd[1]);
+        return;
+    }
+
+    if (pid2 == 0) {
+        dup2(pipefd[0], STDIN_FILENO);
+        close(pipefd[0]);
+        close(pipefd[1]);
+        execvp(args_output[0], args_output);
+        perror("Execution failed");
+        _exit(1);
+    }
+
+    close(pipefd[0]);
+    close(pipefd[1]);
+
+    if (is_background) {
+        printf("[%d|%d]\n", pid1, pid2);
+        return;
+    }
+
+    int status;
+    waitpid(pid1, &status, 0);
+    waitpid(pid2, &status, 0);
+}
+
+int run_shell(void) {
+    char *args[MAX_ARGS];
+    char *args_pipe[MAX_ARGS];
+
+    while (1) {
+        while (waitpid(-1, NULL, WNOHANG) > 0) {}
+
+        char *input = readline("unixsh> ");
+        if (!input) break;
+
+        if (strlen(input) == 0) {
+            free(input);
+            continue;
+        }
+
+        if (strcmp(input, "!!") == 0) {
+            if (strlen(last_command) == 0) {
+                printf("No commands in history.\n");
+                free(input);
+                continue;
+            }
+            free(input);
+            input = strdup(last_command);
+            if (!input) {
+                perror("history alloc failed");
+                continue;
+            }
+            printf("%s\n", input);
+        } else {
+            strncpy(last_command, input, sizeof(last_command) - 1);
+            last_command[sizeof(last_command) - 1] = '\0';
+        }
+
+        int is_background = 0;
+        int has_pipe = 0;
+        char *pipe_pos = strchr(input, '|');
+        if (pipe_pos) {
+            has_pipe = 1;
+            *pipe_pos = '\0';
+            char *right = pipe_pos + 1;
+
+            parse_input(input, args, &is_background);
+            parse_input(right, args_pipe, &is_background);
+        } else {
+            parse_input(input, args, &is_background);
+        }
+
+        if (!has_pipe && (!args[0])) {
+            free(input);
+            continue;
+        }
+
+        if (!has_pipe && strcmp(args[0], "exit") == 0) {
+            free(input);
+            break;
+        }
+
+        if (has_pipe) {
+            execute_piped_command(args, args_pipe, is_background);
+        } else if (is_builtin(args)) {
+            handle_builtin(args);
+        } else {
+            execute_command(args, is_background);
+        }
+
+        free(input);
+    }
+
     return 0;
 }
