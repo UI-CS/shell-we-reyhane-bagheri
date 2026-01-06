@@ -8,6 +8,32 @@
 #define MAX_LINE 1024
 #define MAX_ARGS 64
 
+/* = SUDOKU VALIDATOR = */
+typedef struct {
+    int row;
+    int column;
+} sudoku_params;
+
+int board[SIZE][SIZE];
+int valid[11];
+
+void *validate_rows(void *arg) {
+    for (int row = 0; row < SIZE; row++) {
+        bool seen[10] = {false};
+        for (int col = 0; col < SIZE; col++) {
+            int num = board[row][col];
+            if (num < 1 || num > 9 || seen[num]) {
+                valid[0] = 0;
+                pthread_exit(NULL);
+            }
+            seen[num] = true;
+        }
+    }
+    valid[0] = 1;
+    pthread_exit(NULL);
+}
+
+/* = UNIX SHELL = */
 static char last_command[MAX_LINE] = "";
 
 static int is_builtin(char **args) {
