@@ -32,7 +32,38 @@ void *validate_rows(void *arg) {
     valid[0] = 1;
     pthread_exit(NULL);
 }
+void *validate_cols(void *arg) {
+    for (int col = 0; col < SIZE; col++) {
+        bool seen[10] = {false};
+        for (int row = 0; row < SIZE; row++) {
+            int num = board[row][col];
+            if (num < 1 || num > 9 || seen[num]) {
+                valid[1] = 0;
+                pthread_exit(NULL);
+            }
+            seen[num] = true;
+        }
+    }
+    valid[1] = 1;
+    pthread_exit(NULL);
+}
 
+void *validate_subgrid(void *arg) {
+    sudoku_params *p = (sudoku_params *)arg;
+    bool seen[10] = {false};
+    
+    for (int row = p->row; row < p->row + SUBGRID_SIZE; row++) {
+        for (int col = p->column; col < p->column + SUBGRID_SIZE; col++) {
+            int num = board[row][col];
+            if (num < 1 || num > 9 || seen[num]) {
+                int subgrid_index = (p->row / SUBGRID_SIZE) * SUBGRID_SIZE + (p->column / SUBGRID_SIZE);
+                valid[2 + subgrid_index] = 0;
+                pthread_exit(NULL);
+            }
+            seen[num] = true;
+        }
+    }
+    
 /* = UNIX SHELL = */
 static char last_command[MAX_LINE] = "";
 
