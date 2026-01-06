@@ -118,7 +118,69 @@ int run_sudoku(void) {
     printf("Sudoku is Valid\n");
     return 0;
 }
+/* = PI CALCULATOR = */
 
+typedef struct {
+    long points_per_worker;
+    int worker_id;
+} pi_params;
+
+long points_inside = 0;
+pthread_mutex_t pi_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+void *monte_carlo_worker(void *arg) {
+    pi_params *params = (pi_params *)arg;
+    long local_inside = 0;
+    
+    unsigned int seed = (unsigned int)(time(NULL) ^ (params->worker_id << 16));
+    
+    for (long i = 0; i < params->points_per_worker; i++) {
+        double x = (2.0 * rand_r(&seed) / RAND_MAX) - 1.0;
+        double y = (2.0 * rand_r(&seed) / RAND_MAX) - 1.0;
+        
+        if (x * x + y * y <= 1.0) {
+            local_inside++;
+        }
+    }
+    
+    pthread_mutex_lock(&pi_mutex);
+    points_inside += local_inside;
+    pthread_mutex_unlock(&pi_mutex);
+    
+    free(params);
+    pthread_exit(NULL);
+}
+
+int run_pi(int num_threads, long total_points) {
+    if (num_threads <= 0 || total_points <= 0) {
+        fprintf(stderr, "Error: num_threads and total_points must be positive\n");
+        return 1;
+    }
+    
+    points_inside = 0;
+    
+    time_t start_time = time(NULL);
+    clock_t start_clock = clock();
+    
+    pthread_t threads[num_threads];
+    
+    long points_per_worker = total_points / num_threads;
+    
+    for (int i = 0; i < num_threads; i++) {
+        pi_params *params = malloc(sizeof(pi_params));
+        if (!params) {
+            fprintf(stderr, "Error: malloc failed\n");
+            return 1;
+        }
+        params->points_per_worker = points_per_worker;
+        params->worker_id = i;
+        
+        if (pthread_create(&threads[i], NULL, monte_carlo_worker, (void *)params) != 0) {
+            fprintf(stderr, "Error: pthread_create failed\n");
+            return 1;
+        }
+    }
+    
     
 /* = UNIX SHELL = */
 static char last_command[MAX_LINE] = "";
