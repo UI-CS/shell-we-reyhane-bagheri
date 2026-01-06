@@ -181,7 +181,23 @@ int run_pi(int num_threads, long total_points) {
         }
     }
     
+    clock_t end_clock = clock();
+    time_t end_time = time(NULL);
     
+    double pi_estimate = 4.0 * points_inside / total_points;
+    double elapsed_time = (double)(end_clock - start_clock) / CLOCKS_PER_SEC;
+    
+    printf("Threads: %d\n", num_threads);
+    printf("Total Points: %ld\n", total_points);
+    printf("Points Inside Circle: %ld\n", points_inside);
+    printf("Estimated Pi: %.6f\n", pi_estimate);
+    printf("Actual Pi:    %.6f\n", M_PI);
+    printf("Error:        %.6f\n", fabs(pi_estimate - M_PI));
+    printf("Time Elapsed: %.3f seconds\n", elapsed_time);
+    
+    return 0;
+}
+
 /* = UNIX SHELL = */
 static char last_command[MAX_LINE] = "";
 
