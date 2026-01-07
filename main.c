@@ -1,12 +1,18 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include <unistd.h>
 #include <string.h>
-#include <stdlib.h>
 #include <sys/wait.h>
+#include <pthread.h>
+#include <math.h>
+#include <time.h>
+#include <stdbool.h>
 #include <readline/readline.h>
 
 #define MAX_LINE 1024
 #define MAX_ARGS 64
+#define SIZE 9
+#define SUBGRID_SIZE 3
 
 /* = SUDOKU VALIDATOR = */
 typedef struct {
@@ -177,6 +183,13 @@ int run_pi(int num_threads, long total_points) {
         
         if (pthread_create(&threads[i], NULL, monte_carlo_worker, (void *)params) != 0) {
             fprintf(stderr, "Error: pthread_create failed\n");
+            return 1;
+        }
+    }
+
+    for (int i = 0; i < num_threads; i++) {
+        if (pthread_join(threads[i], NULL) != 0) {
+            fprintf(stderr, "Error: pthread_join failed\n");
             return 1;
         }
     }
@@ -397,4 +410,23 @@ int run_shell(void) {
     }
 
     return 0;
+}
+
+/* = DISPATCHER = */
+int main(int argc, char *argv[]) {
+    if (argc == 1 || (argc == 2 && strcmp(argv[1], "shell") == 0)) {
+        return run_shell();
+    } else if (argc == 2 && strcmp(argv[1], "sudoku") == 0) {
+        return run_sudoku();
+    } else if (argc >= 3 && strcmp(argv[1], "pi") == 0) {
+        int num_threads = atoi(argv[2]);
+        long total_points = atol(argv[3]);
+        return run_pi(num_threads, total_points);
+    } else {
+        fprintf(stderr, "Usage:\n");
+        fprintf(stderr, "  %s [shell]           - Run Unix shell (default)\n", argv[0]);
+        fprintf(stderr, "  %s sudoku            - Run Sudoku validator\n", argv[0]);
+        fprintf(stderr, "  %s pi <threads> <points> - Run Pi calculator\n", argv[0]);
+        return 1;
+    }
 }
